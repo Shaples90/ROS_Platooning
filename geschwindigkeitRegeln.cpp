@@ -13,7 +13,16 @@ double map(double x, double in_min, double in_max, double out_min, double out_ma
 template<>
 void PublisherSubscriber<std_msgs::UInt16, sensor_msgs::LaserScan>::subscriberCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
 {
+        // Parameter für Arbeitsflächeäc
+        double distanceMin = 0.8;
+        double distanceMax = 1;
+        double angleLeftMax = 10;
+        double angleRightMax = -10;
+
+        double distanceMeasureMin = 12;
+        double angle = 0;
         double actualV = 0;
+        int lv = 0;
         std_msgs::UInt16 msg;
 
         // Anzahl der Messungen pro frame
@@ -22,36 +31,39 @@ void PublisherSubscriber<std_msgs::UInt16, sensor_msgs::LaserScan>::subscriberCa
         // minimalen Abstand mit Randbedingungen finden
         for(int i = 0; i < count; i++)
         {
-                // Werte nur die Winkeln zwischen -10deg und 10deg aus
-                if(RAD2DEG(scan->angle_min + scan->angle_increment * i) < -5 || RAD2DEG(scan->angle_min + scan->angle_increment * i) > 5)
+                if(        scan->ranges[i] < distanceMeasureMin
+                        && RAD2DEG(scan->angle_min + scan->angle_increment * i) >= angleRightMax
+                        && RAD2DEG(scan->angle_min + scan->angle_increment * i) <= angleLeftMax
+                        && scan->ranges[i] != std::numeric_limits<float>::infinity())
                 {
-                        continue;
+                        distanceMeasureMin = scan->ranges[i];
+                        lv = i;
                 }
                 else
                 {
-                        // Distanzmessung "inf" ignorieren
-                        if(scan->ranges[i] == std::numeric_limits<float>::infinity())
-                        {
-                                continue;
-                        }
-                        // Notfallbremse wenn das Vorderfahrzeug zu nah oder zu weitentfernt ist
-                        else if(scan->ranges[i] > 1 || scan->ranges[i] < 0.8)
-                        {
-                                actualV = 0;
-                                ROS_INFO(": [%f, %f]", scan->ranges[i], actualV);
-                                msg.data = actualV;
-                                publisherObject.publish(msg);
-                        }
-                        // Berechnung des skalierten Geschwindigkeitswertes aus der eingegebenen Distanzmessung
-                        else
-                        {
-                                actualV = map(scan->ranges[i], 0.8, 1, 550, 786);
-                                ROS_INFO(": [%f, %f]", scan->ranges[i], actualV);
-                                msg.data = actualV;
-                                publisherObject.publish(msg);
-                        }
+                        continue;
                 }
         }
+
+        // zum minimalen Abstand dazugehöriger Winkeln
+        angle = RAD2DEG(scan->angle_min + scan->angle_increment * lv);
+        
+        // Notfallbremse wenn das Vorderfahrzeug zu nah oder zu weitentfernt ist
+        if(distanceMeasureMin > distanceMax || distanceMeasureMin < distanceMin)
+        {
+                actualV = 0;
+        }
+
+        // Berechnung des skalierten Geschwindigkeitswertes aus der eingegebenen Distanzmessung
+        else
+        {
+                actualV = map(distanceMeasureMin, distanceMin, distanceMax, 550, 786);
+        }
+
+        // Daten an /velocity publishen
+        ROS_INFO(": [%f, %f]",angle ,distanceMeasureMin);
+        msg.data = actualV;
+        publisherObject.publish(msg);
 }
 
 int main(int argc, char **argv)
